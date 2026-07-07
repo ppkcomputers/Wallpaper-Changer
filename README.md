@@ -16,5 +16,14 @@ An elegant, smooth-animating Workspace Overview On-Screen Display (OSD) built us
 
 Ensure you have `quickshell` installed on your Arch Linux system:
 
-```bash
+bash
 pacman -S quickshell
+
+To test the OSD manually, run:
+
+Bash
+quickshell -p shell.qml
+
+## Hyprland.lua keybinding  
+
+hl.bind("SUPER + U", hl.dsp.exec_cmd("~/.config/Quickshell/WallpaperChanger/toggle.sh"))
