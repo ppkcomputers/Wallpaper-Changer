@@ -1,4 +1,6 @@
-# Hyprland Active Workspaces OSD (Quickshell)
+# Hyprland Active Workspaces OSD (Quickshell)  
+
+![Workspace OSD Preview](pic/preview.png)
 
 An elegant, smooth-animating Workspace Overview On-Screen Display (OSD) built using **Quickshell** and **QtQuick** for the Hyprland compositor. It slides down gracefully from the top of the screen to show active workspaces, focused states, and a list of running window titles inside each workspace.
 
