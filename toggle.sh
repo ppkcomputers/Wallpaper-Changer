@@ -7,6 +7,6 @@ TARGET_QML="$HOME/.config/Quickshell/WallpaperChanger/wallpaper-gui.qml"
 if pgrep -f "quickshell.*$TARGET_QML" >/dev/null; then
     pkill -f "quickshell.*$TARGET_QML"
 else
-    # Launch it in the background using your software rendering backend
-    QT_QUICK_BACKEND=software quickshell -p "$TARGET_QML" &
+    # Launch with hardware acceleration so process forks can execute
+    quickshell -p "$TARGET_QML" &
 fi
