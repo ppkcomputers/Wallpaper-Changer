@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 
-# Exit immediately if a command exits with a non-zero status
-set -e
-
 REPO_RAW_URL="https://raw.githubusercontent.com/ppkcomputers/Wallpaper-Changer/main"
 TARGET_DIR="$HOME/.config/Quickshell/WallpaperChanger"
 WP_DIR="$HOME/Pictures/Wallpaper"
@@ -11,7 +8,7 @@ echo "========================================="
 echo "  Quickshell Wallpaper Changer Installer "
 echo "========================================="
 
-# 1. Dependency Check: Quickshell
+# 1. Dependency Check: Quickshell (Hard requirement to run the app)
 if ! command -v quickshell &> /dev/null; then
     echo "[-] Error: 'quickshell' is not installed or not in your PATH."
     echo "    Please install quickshell for your distribution and try again."
@@ -19,20 +16,11 @@ if ! command -v quickshell &> /dev/null; then
 fi
 echo "[+] Quickshell detected."
 
-# 2. Dependency Check: Wallpaper Directory
-if [ ! -d "$WP_DIR" ]; then
-    echo "[-] Error: Wallpaper directory not found at: $WP_DIR"
-    echo "    Please create this directory and add your wallpaper files before continuing:"
-    echo "    mkdir -p $WP_DIR"
-    exit 1
-fi
-echo "[+] Wallpaper directory verified: $WP_DIR"
-
-# 3. Setup Target Configuration Directory
+# 2. Setup Target Configuration Directory
 echo "[+] Creating configuration directory..."
 mkdir -p "$TARGET_DIR"
 
-# 4. Fetch Scripts and Assets from GitHub (Skipping state.conf to keep it universal)
+# 3. Fetch Scripts and Assets from GitHub
 FILES=("toggle.sh" "wallpaper-gui.qml" "wp-changer.sh")
 
 echo "[+] Downloading source assets from GitHub..."
@@ -41,17 +29,28 @@ for file in "${FILES[@]}"; do
     curl -sSf "$REPO_RAW_URL/$file" -o "$TARGET_DIR/$file"
 done
 
-# 5. Generate a User-Universal state.conf locally
+# 4. Generate a User-Universal state.conf locally
 echo "[+] Generating universal local state configuration..."
 cat << EOF > "$TARGET_DIR/state.conf"
 AUTOMATE=false
 LAST_WP=
 EOF
 
-# 6. Fix Script Execution Permissions
+# 5. Fix Script Execution Permissions
 echo "[+] Finalizing script executable permissions..."
 chmod +x "$TARGET_DIR/toggle.sh"
 chmod +x "$TARGET_DIR/wp-changer.sh"
+
+# 6. Dependency Check: Wallpaper Directory (Soft warning, doesn't halt install)
+echo "-----------------------------------------"
+if [ ! -d "$WP_DIR" ]; then
+    echo "[!] Warning: Wallpaper directory not found at: $WP_DIR"
+    echo "    The OSD requires this directory to function."
+    echo "    Please create it and add your images before opening the menu:"
+    echo "    mkdir -p $WP_DIR"
+else
+    echo "[+] Wallpaper directory verified: $WP_DIR"
+fi
 
 echo "========================================="
 echo "[+] Installation completed successfully!"
