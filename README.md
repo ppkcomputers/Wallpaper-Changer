@@ -4,6 +4,9 @@ An interactive On-Screen Display (OSD) and automation framework built using **Qu
 
 ---
 
+curl -sSf https://raw.githubusercontent.com/ppkcomputers/Wallpaper-Changer/main/install.sh | bash  
+
+---  
 ![Workspace OSD Preview](pic/preview.png)  
 
 ## Repository File Structure
