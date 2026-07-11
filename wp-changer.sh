@@ -1,48 +1,131 @@
 #!/usr/bin/env bash
 
 WP_DIR="$HOME/Pictures/Wallpaper"
-SOCKET_FILE="/run/user/$(id -u)/wayland-1-awww-daemon.sock"
+CONFIG_DIR="$HOME/.config/Quickshell/WallpaperChanger"
+STATE_FILE="$CONFIG_DIR/state.conf"
 
-# Handle clean exit on Ctrl+C for the script loop only
-cleanup() {
-    echo -e "\nScript stopped. The background daemon will keep running your wallpaper."
-    exit 0
+SOCKET_FILE="${XDG_RUNTIME_DIR}/awww-${WAYLAND_DISPLAY:-wayland-0}.socket"
+
+mkdir -p "$WP_DIR" "$CONFIG_DIR"
+touch "$STATE_FILE"
+
+[[ ! $(grep "AUTOMATE=" "$STATE_FILE") ]] && echo "AUTOMATE=false" >> "$STATE_FILE"
+[[ ! $(grep "LAST_WP=" "$STATE_FILE") ]] && echo "LAST_WP=" >> "$STATE_FILE"
+
+verify_backend() {
+    mkdir -p "$HOME/.cache/awww"
+    if [ ! -S "$SOCKET_FILE" ] && ! pgrep -x "awww-daemon" > /dev/null; then
+        setsid /usr/bin/awww-daemon > /dev/null 2>&1 &
+        sleep 0.5
+    fi
 }
-trap cleanup SIGINT SIGTERM
 
-# Check if the folder exists; if not, create it
-if [ ! -d "$WP_DIR" ]; then
-    mkdir -p "$WP_DIR"
-fi
+save_state() {
+    local wp="$1"
+    local auto="$2"
+    sed -i "s|LAST_WP=.*|LAST_WP=$wp|" "$STATE_FILE"
+    sed -i "s|AUTOMATE=.*|AUTOMATE=$auto|" "$STATE_FILE"
+}
 
-# Ensure the actual awww-daemon binary is running cleanly
-if [ ! -S "$SOCKET_FILE" ] && ! pgrep -x "awww-daemon" > /dev/null; then
-    echo "awww-daemon not detected. Launching in an isolated session..."
-    # setsid completely detaches the daemon from the terminal's Ctrl+C signals
-    setsid /usr/bin/awww-daemon > /dev/null 2>&1 &
-    sleep 1
-fi
+init_systemd_units() {
+    local service_dir="$HOME/.config/systemd/user"
+    local service_file="$service_dir/wp-automate.service"
+    local timer_file="$service_dir/wp-automate.timer"
+    
+    mkdir -p "$service_dir"
 
-# Initialize an empty array for our shuffled playlist queue
-playlist=()
+    local tmp_service=$(mktemp)
+    local tmp_timer=$(mktemp)
 
-while true; do
-    # If our playlist queue is empty, rebuild it by shuffling all current files
-    if [ ${#playlist[@]} -eq 0 ]; then
-        mapfile -t playlist < <(find "$WP_DIR" -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.webp" \) | shuf)
+    cat << 'INNER_EOF' > "$tmp_service"
+[Unit]
+Description=Rotate wallpaper via awww
+After=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.config/Quickshell/WallpaperChanger/wp-changer.sh --step-loop
+INNER_EOF
+
+    cat << 'INNER_EOF' > "$tmp_timer"
+[Unit]
+Description=Run wallpaper automation loops
+
+[Timer]
+OnActiveSec=1s
+OnUnitActiveSec=10s
+AccuracySec=100ms
+
+[Install]
+WantedBy=timers.target
+INNER_EOF
+
+    local reload_needed=0
+
+    if ! cmp -s "$tmp_service" "$service_file"; then
+        mv "$tmp_service" "$service_file"
+        reload_needed=1
+    else
+        rm "$tmp_service"
     fi
 
-    # Only proceed if we actually found files to play
+    if ! cmp -s "$tmp_timer" "$timer_file"; then
+        mv "$tmp_timer" "$timer_file"
+        reload_needed=1
+    else
+        rm "$tmp_timer"
+    fi
+
+    if [ "$reload_needed" -eq 1 ]; then
+        systemctl --user daemon-reload
+    fi
+}
+
+verify_backend
+
+if [[ "$1" == "--boot" ]]; then
+    init_systemd_units
+    LAST_WP=$(grep "LAST_WP=" "$STATE_FILE" | cut -d'=' -f2)
+    AUTOMATE_STATE=$(grep "AUTOMATE=" "$STATE_FILE" | cut -d'=' -f2)
+
+    if [[ -f "$LAST_WP" ]]; then
+        /usr/bin/awww img "$LAST_WP" --transition-type none
+    fi
+
+    if [[ "$AUTOMATE_STATE" == "true" ]]; then
+        systemctl --user start wp-automate.timer
+    fi
+    exit 0
+fi
+
+if [[ "$1" == "--set" && -f "$2" ]]; then
+    /usr/bin/awww img "$2" --transition-type random --transition-duration 1.5
+    AUTOMATE_STATE=$(grep "AUTOMATE=" "$STATE_FILE" | cut -d'=' -f2)
+    save_state "$2" "$AUTOMATE_STATE"
+    exit 0
+fi
+
+if [[ "$1" == "--start-auto" || "$1" == "--save-auto" && "$2" == "true" ]]; then
+    systemctl --user start wp-automate.timer
+    CURRENT_LAST=$(grep 'LAST_WP=' "$STATE_FILE" | cut -d'=' -f2)
+    save_state "$CURRENT_LAST" "true"
+    exit 0
+fi
+
+if [[ "$1" == "--stop-auto" || "$1" == "--save-auto" && "$2" == "false" ]]; then
+    systemctl --user stop wp-automate.timer
+    CURRENT_LAST=$(grep 'LAST_WP=' "$STATE_FILE" | cut -d'=' -f2)
+    save_state "$CURRENT_LAST" "false"
+    exit 0
+fi
+
+if [[ "$1" == "--step-loop" ]]; then
+    mapfile -t playlist < <(find "$WP_DIR" -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.webp" \) | shuf)
+    
     if [ ${#playlist[@]} -gt 0 ]; then
-        # Pop the first wallpaper off our shuffled queue
         NEXT_WP="${playlist[0]}"
-        playlist=("${playlist[@]:1}")
-
-        if [ -f "$NEXT_WP" ]; then
-            /usr/bin/awww img "$NEXT_WP" --transition-type random --transition-duration 1.5
-        fi
+        /usr/bin/awww img "$NEXT_WP" --transition-type random --transition-duration 1.5
+        save_state "$NEXT_WP" "true"
     fi
-
-    # Set to 3600 for 1 hour. Change to 5 for rapid testing.
-    sleep 3600
-done
+    exit 0
+fi
