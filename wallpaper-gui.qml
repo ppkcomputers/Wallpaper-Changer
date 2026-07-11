@@ -8,11 +8,31 @@ ShellRoot {
 
     property string homeDir: Quickshell.env("HOME")
     property string wpPath: homeDir + "/Pictures/Wallpaper"
+    property string stateFile: homeDir + "/.config/Quickshell/WallpaperChanger/state.conf"
     property var imageList: []
     property bool folderIsEmpty: true
     property bool isAutomated: false
 
-    // Process to verify and fetch wallpapers on start
+    // RUNS ONCE AT OSD STARTUP: Restores last wallpaper condition safely detached
+    Process {
+        id: bootRestore
+        command: ["systemd-run", "--user", "--scope", root.homeDir + "/.config/Quickshell/WallpaperChanger/wp-changer.sh", "--boot"]
+        running: true
+    }
+
+    // Dynamic health check: queries systemd to see if the background timer loop is running
+    Process {
+        id: healthCheck
+        command: ["sh", "-c", "systemctl --user is-active wp-automate.timer >/dev/null && echo 'auto_on' || echo 'auto_off'"]
+        running: true
+        stdout: SplitParser {
+            onRead: (text) => {
+                root.isAutomated = (text.trim() === "auto_on");
+            }
+        }
+    }
+
+    // Load available files (omitting gifs)
     Process {
         id: dirCheckProcess
         command: ["sh", "-c", "mkdir -p '" + root.wpPath + "' && find '" + root.wpPath + "' -type f \\( -name '*.jpg' -o -name '*.jpeg' -o -name '*.png' -o -name '*.webp' \\) | sort"]
@@ -30,6 +50,7 @@ ShellRoot {
 
         onExited: {
             if (!root.folderIsEmpty) {
+                wpModel.clear();
                 for (var i = 0; i < root.imageList.length; i++) {
                     wpModel.append({ "filePath": root.imageList[i] });
                 }
@@ -37,32 +58,17 @@ ShellRoot {
         }
     }
 
-    // Direct one-shot process to terminate the loop cleanly
+    // Detached process worker to ensure script runs independently of Quickshell's lifetime
     Process {
-        id: stopAutomationProcess
-        command: ["pkill", "-f", "wp-changer.sh"]
+        id: detachedWorker
         running: false
-        onExited: {
-            running = false;
-        }
+        onExited: { running = false; }
     }
 
-    // Primary native array worker for setting the image
-    Process {
-        id: shellWorker
-        running: false
-        onExited: {
-            running = false;
-        }
-    }
-
-    ListModel {
-        id: wpModel
-    }
+    ListModel { id: wpModel }
 
     PanelWindow {
         id: window
-
         anchors.left: true
         anchors.right: true
         exclusiveZone: 0
@@ -71,19 +77,14 @@ ShellRoot {
 
         Rectangle {
             id: body
-            // Force the initial state completely off-screen to the right
             x: parent.width
             y: 10
-
             width: parent.width - 40
             height: parent.height - 20
             radius: 12
 
             Behavior on x {
-                NumberAnimation {
-                    duration: 600
-                    easing.type: Easing.OutCubic // Smoothly decelerates as it slides in
-                }
+                NumberAnimation { duration: 600; easing.type: Easing.OutCubic }
             }
 
             color: Qt.rgba(0, 0, 0, 0.6)
@@ -106,12 +107,6 @@ ShellRoot {
                         font.pixelSize: 22
                         font.bold: true
                     }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: "Please add images to: ~/Pictures/Wallpaper"
-                        color: "#b0ac63"
-                        font.pixelSize: 14
-                    }
                 }
 
                 ListView {
@@ -131,26 +126,21 @@ ShellRoot {
                             anchors.centerIn: parent
                             spacing: 16
 
-                            // Toggle Button
                             Rectangle {
                                 id: btn
                                 width: 140
                                 height: 50
                                 radius: 6
-
-                                // Palette behaviors (dims on click, brightens on hover)
-                                color: btnMouse.containsPress ? "#424330" : (btnMouse.containsMouse ? "#6e7151" : "#595b41")
+                                color: root.isAutomated ? "#ff6c6b" : (btnMouse.containsPress ? "#424330" : (btnMouse.containsMouse ? "#6e7151" : "#595b41"))
                                 anchors.horizontalCenter: parent.horizontalCenter
 
                                 scale: btnMouse.containsPress ? 0.94 : 1.0
-                                Behavior on scale {
-                                    NumberAnimation { duration: 100 }
-                                }
+                                Behavior on scale { NumberAnimation { duration: 100 } }
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "awww" // Permanent static label
-                                    color: "#ffffff"
+                                    text: root.isAutomated ? "STOP" : "START"
+                                    color: root.isAutomated ? "#000000" : "#ffffff"
                                     font.pixelSize: 18
                                     font.bold: true
                                 }
@@ -164,13 +154,12 @@ ShellRoot {
                                     onClicked: {
                                         if (root.isAutomated) {
                                             root.isAutomated = false;
-                                            stopAutomationProcess.running = true;
+                                            detachedWorker.command = ["systemd-run", "--user", "--scope", root.homeDir + "/.config/Quickshell/WallpaperChanger/wp-changer.sh", "--stop-auto"];
                                         } else {
                                             root.isAutomated = true;
-                                            // Fixed with full system path so keybindings can execute it reliably
-                                            shellWorker.command = ["sh", "-c", root.homeDir + "/.config/Quickshell/WallpaperChanger/wp-changer.sh &"];
-                                            shellWorker.running = true;
+                                            detachedWorker.command = ["systemd-run", "--user", "--scope", root.homeDir + "/.config/Quickshell/WallpaperChanger/wp-changer.sh", "--start-auto"];
                                         }
+                                        detachedWorker.running = true;
                                     }
                                 }
                             }
@@ -210,15 +199,12 @@ ShellRoot {
                                 if (mouse.button === Qt.LeftButton) {
                                     var purePath = model.filePath.replace("file://", "");
 
-                                    root.isAutomated = false;
-                                    stopAutomationProcess.running = true;
-
-                                    shellWorker.command = [
-                                        "/usr/bin/awww", "img", purePath,
-                                        "--transition-type", "random",
-                                        "--transition-duration", "1.5"
+                                    detachedWorker.command = [
+                                        "systemd-run", "--user", "--scope",
+                                        root.homeDir + "/.config/Quickshell/WallpaperChanger/wp-changer.sh",
+                                        "--set", purePath
                                     ];
-                                    shellWorker.running = true;
+                                    detachedWorker.running = true;
                                 }
                             }
                         }
@@ -228,12 +214,10 @@ ShellRoot {
         }
 
         Timer {
-            interval: 50 // Decreased to capture the engine layout before rendering frames
+            interval: 50
             running: true
             repeat: false
-            onTriggered: {
-                body.x = 20 // Slides smoothly into position, centered with a 20px margin
-            }
+            onTriggered: { body.x = 20; }
         }
     }
 }
