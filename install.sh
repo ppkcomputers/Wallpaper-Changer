@@ -32,8 +32,8 @@ echo "[+] Wallpaper directory verified: $WP_DIR"
 echo "[+] Creating configuration directory..."
 mkdir -p "$TARGET_DIR"
 
-# 4. Fetch Files from GitHub
-FILES=("state.conf" "toggle.sh" "wallpaper-gui.qml" "wp-changer.sh")
+# 4. Fetch Scripts and Assets from GitHub (Skipping state.conf to keep it universal)
+FILES=("toggle.sh" "wallpaper-gui.qml" "wp-changer.sh")
 
 echo "[+] Downloading source assets from GitHub..."
 for file in "${FILES[@]}"; do
@@ -41,7 +41,14 @@ for file in "${FILES[@]}"; do
     curl -sSf "$REPO_RAW_URL/$file" -o "$TARGET_DIR/$file"
 done
 
-# 5. Fix Script Execution Permissions
+# 5. Generate a User-Universal state.conf locally
+echo "[+] Generating universal local state configuration..."
+cat << EOF > "$TARGET_DIR/state.conf"
+AUTOMATE=false
+LAST_WP=
+EOF
+
+# 6. Fix Script Execution Permissions
 echo "[+] Finalizing script executable permissions..."
 chmod +x "$TARGET_DIR/toggle.sh"
 chmod +x "$TARGET_DIR/wp-changer.sh"
