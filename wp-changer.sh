@@ -53,7 +53,7 @@ Description=Run wallpaper automation loops
 
 [Timer]
 OnActiveSec=1s
-OnUnitActiveSec=10s
+OnUnitActiveSec=30min
 AccuracySec=100ms
 
 [Install]
