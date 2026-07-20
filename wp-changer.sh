@@ -4,6 +4,9 @@ WP_DIR="$HOME/Pictures/Wallpaper"
 CONFIG_DIR="$HOME/.config/Quickshell/WallpaperChanger"
 STATE_FILE="$CONFIG_DIR/state.conf"
 
+# Updated to point directly to Brave-Origin-Beta Profile 2
+BRAVE_DIR="$HOME/.config/BraveSoftware/Brave-Origin-Beta/Profile 2/sanitized_background_images"
+
 SOCKET_FILE="${XDG_RUNTIME_DIR}/awww-${WAYLAND_DISPLAY:-wayland-0}.socket"
 
 mkdir -p "$WP_DIR" "$CONFIG_DIR"
@@ -11,6 +14,22 @@ touch "$STATE_FILE"
 
 [[ ! $(grep "AUTOMATE=" "$STATE_FILE") ]] && echo "AUTOMATE=false" >> "$STATE_FILE"
 [[ ! $(grep "LAST_WP=" "$STATE_FILE") ]] && echo "LAST_WP=" >> "$STATE_FILE"
+
+# Robust sync function that handles format conversion
+sync_brave() {
+    local wp="$1"
+    if [ -d "$BRAVE_DIR" ] && [ -f "$wp" ]; then
+        local brave_target
+        brave_target=$(ls "$BRAVE_DIR" 2>/dev/null | head -n 1)
+        if [ -n "$brave_target" ]; then
+            if command -v magick &>/dev/null; then
+                magick "$wp" "$BRAVE_DIR/$brave_target"
+            else
+                cp "$wp" "$BRAVE_DIR/$brave_target"
+            fi
+        fi
+    fi
+}
 
 verify_backend() {
     mkdir -p "$HOME/.cache/awww"
@@ -31,7 +50,7 @@ init_systemd_units() {
     local service_dir="$HOME/.config/systemd/user"
     local service_file="$service_dir/wp-automate.service"
     local timer_file="$service_dir/wp-automate.timer"
-    
+
     mkdir -p "$service_dir"
 
     local tmp_service=$(mktemp)
@@ -90,6 +109,7 @@ if [[ "$1" == "--boot" ]]; then
 
     if [[ -f "$LAST_WP" ]]; then
         /usr/bin/awww img "$LAST_WP" --transition-type none
+        sync_brave "$LAST_WP"
     fi
 
     if [[ "$AUTOMATE_STATE" == "true" ]]; then
@@ -100,6 +120,7 @@ fi
 
 if [[ "$1" == "--set" && -f "$2" ]]; then
     /usr/bin/awww img "$2" --transition-type random --transition-duration 1.5
+    sync_brave "$2"
     AUTOMATE_STATE=$(grep "AUTOMATE=" "$STATE_FILE" | cut -d'=' -f2)
     save_state "$2" "$AUTOMATE_STATE"
     exit 0
@@ -121,10 +142,11 @@ fi
 
 if [[ "$1" == "--step-loop" ]]; then
     mapfile -t playlist < <(find "$WP_DIR" -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.webp" \) | shuf)
-    
+
     if [ ${#playlist[@]} -gt 0 ]; then
         NEXT_WP="${playlist[0]}"
         /usr/bin/awww img "$NEXT_WP" --transition-type random --transition-duration 1.5
+        sync_brave "$NEXT_WP"
         save_state "$NEXT_WP" "true"
     fi
     exit 0
