@@ -12,6 +12,22 @@ ShellRoot {
     property var imageList: []
     property bool folderIsEmpty: true
     property bool isAutomated: false
+    property string currentWallpaper: ""
+
+    // Triggers scrolling whenever currentWallpaper is populated/updated
+    onCurrentWallpaperChanged: scrollToCurrent()
+
+    function scrollToCurrent() {
+        if (root.currentWallpaper.length === 0 || wpModel.count === 0) return;
+
+        for (var i = 0; i < wpModel.count; i++) {
+            if (wpModel.get(i).filePath === root.currentWallpaper) {
+                scrollTimer.targetIndex = i;
+                scrollTimer.restart();
+                break;
+            }
+        }
+    }
 
     // RUNS ONCE AT OSD STARTUP: Restores last wallpaper condition safely detached
     Process {
@@ -28,6 +44,21 @@ ShellRoot {
         stdout: SplitParser {
             onRead: (text) => {
                 root.isAutomated = (text.trim() === "auto_on");
+            }
+        }
+    }
+
+    // Fetch active wallpaper path specifically from LAST_WP in state.conf
+    Process {
+        id: currentWpCheck
+        command: ["sh", "-c", "grep '^LAST_WP=' '" + root.stateFile + "' 2>/dev/null | cut -d'=' -f2- || true"]
+        running: true
+        stdout: SplitParser {
+            onRead: (text) => {
+                var cleaned = text.trim();
+                if (cleaned.length > 0) {
+                    root.currentWallpaper = cleaned.startsWith("file://") ? cleaned : "file://" + cleaned;
+                }
             }
         }
     }
@@ -54,6 +85,8 @@ ShellRoot {
                 for (var i = 0; i < root.imageList.length; i++) {
                     wpModel.append({ "filePath": root.imageList[i] });
                 }
+                // Try scrolling once model finishes building
+                root.scrollToCurrent();
             }
         }
     }
@@ -66,6 +99,17 @@ ShellRoot {
     }
 
     ListModel { id: wpModel }
+
+    // Position view safely after delegates initialize
+    Timer {
+        id: scrollTimer
+        interval: 100
+        repeat: false
+        property int targetIndex: 0
+        onTriggered: {
+            wpListView.positionViewAtIndex(targetIndex, ListView.Center);
+        }
+    }
 
     PanelWindow {
         id: window
@@ -180,8 +224,8 @@ ShellRoot {
                         color: "#1e1e2e"
                         radius: 6
                         clip: true
-                        border.width: 1
-                        border.color: "#b0ac63"
+                        border.width: model.filePath === root.currentWallpaper ? 3 : 1
+                        border.color: model.filePath === root.currentWallpaper ? "#89b4fa" : "#b0ac63"
 
                         Image {
                             anchors.fill: parent
@@ -198,6 +242,7 @@ ShellRoot {
                             onClicked: (mouse) => {
                                 if (mouse.button === Qt.LeftButton) {
                                     var purePath = model.filePath.replace("file://", "");
+                                    root.currentWallpaper = model.filePath;
 
                                     detachedWorker.command = [
                                         "systemd-run", "--user", "--scope",
