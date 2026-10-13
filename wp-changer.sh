@@ -31,6 +31,31 @@ sync_brave() {
     fi
 }
 
+# Push current wallpaper to Android phone and set it as background.
+# Silently skips if adb is missing or no device is connected.
+sync_android() {
+    local wp="$1"
+
+    # Exit early if adb is not installed
+    command -v adb &>/dev/null || return 0
+
+    # Exit early if no authorised device is present
+    if ! adb get-state 1>/dev/null 2>&1; then
+        return 0
+    fi
+
+    # Push the exact desktop wallpaper and trigger the set-as-wallpaper flow
+    adb push "$wp" /sdcard/Download/hypr_current_wallpaper.jpg >/dev/null 2>&1 && \
+    adb shell am start \
+        -a android.intent.action.ATTACH_DATA \
+        -c android.intent.category.DEFAULT \
+        -d "file:///sdcard/Download/hypr_current_wallpaper.jpg" \
+        -t "image/*" \
+        -e mimeType "image/*" >/dev/null 2>&1 && \
+    sleep 1 && \
+    adb shell input tap 340 1340 >/dev/null 2>&1
+}
+
 verify_backend() {
     mkdir -p "$HOME/.cache/awww"
     if [ ! -S "$SOCKET_FILE" ] && ! pgrep -x "awww-daemon" > /dev/null; then
@@ -110,6 +135,7 @@ if [[ "$1" == "--boot" ]]; then
     if [[ -f "$LAST_WP" ]]; then
         /usr/bin/awww img "$LAST_WP" --transition-type none
         sync_brave "$LAST_WP"
+        sync_android "$LAST_WP"
     fi
 
     if [[ "$AUTOMATE_STATE" == "true" ]]; then
@@ -121,6 +147,7 @@ fi
 if [[ "$1" == "--set" && -f "$2" ]]; then
     /usr/bin/awww img "$2" --transition-type random --transition-duration 1.5
     sync_brave "$2"
+    sync_android "$2"
     AUTOMATE_STATE=$(grep "AUTOMATE=" "$STATE_FILE" | cut -d'=' -f2)
     save_state "$2" "$AUTOMATE_STATE"
     exit 0
@@ -147,6 +174,7 @@ if [[ "$1" == "--step-loop" ]]; then
         NEXT_WP="${playlist[0]}"
         /usr/bin/awww img "$NEXT_WP" --transition-type random --transition-duration 1.5
         sync_brave "$NEXT_WP"
+        sync_android "$NEXT_WP"
         save_state "$NEXT_WP" "true"
     fi
     exit 0
